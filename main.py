@@ -28,11 +28,11 @@ parser.add_argument('--batch_size', type=int, default=512)
 parser.add_argument('--test_size', type=int, default=256)
 parser.add_argument('--num_workers', type=int, default=0)
 # Model Settings
-parser.add_argument('--model_name', type=str, default='ResNet18_NCM', choices=['ResNet18', 'ResNet18_NCM', 'ImageNet_ResNet'])
+parser.add_argument('--model_name', type=str, default='ResNet18_NCM', choices=['ResNet18', 'ResNet18_NCM', 'ImageNet_ResNet18'])
 parser.add_argument('--epoch', type=int, default=10)
 parser.add_argument('--lr', '--learning_rate', type=float, default=0.1)
 parser.add_argument('--num_classes', type=int, default=10)
-parser.add_argument('--classifier', type=str, default='NCM', choices=['FC', 'SLDA', 'NCM'])
+parser.add_argument('--classifier', type=str, default='NCM', choices=['FC', 'NCM'])
 # CL Settings
 parser.add_argument('--class_increment', type=int, default=1)
 
@@ -183,11 +183,8 @@ def main():
     classifier_name = args.classifier
     if classifier_name == 'NCM':
         classifier = NCM.NearestClassMean(feature_size, args.num_classes, device=args.device)
-    elif classifier_name == 'Fine-tuning':
-        classifier = Softmax.SoftmaxLayer(feature_size, args.num_classes)
-        optimizer = optim.SGD(classifier.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     else:
-        classifier = None # full training
+        classifier = None # FC layer fine-tuning
 
     # For plotting the logs
     logger = Logger('logs/' + args.dataset + '/' + args.device_name, args.classifier)
