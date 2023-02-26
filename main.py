@@ -12,14 +12,14 @@ import torch.backends.cudnn as cudnn
 
 import dataloader
 import data_generator
-from models import resnet, NCM, Softmax
+from models import resnet, NCM
 from metric import AverageMeter, Logger
 from utils import get_feature_size
 
 parser = argparse.ArgumentParser()
 # General Settings
 parser.add_argument('--seed', type=int, default=0)
-parser.add_argument('--device', type=int, default=0)
+parser.add_argument('--device', type=str, default='0')
 parser.add_argument('--device_name', type=str, default='hspark')
 # Dataset Settings
 parser.add_argument('--root', type=str, default='./data/')
@@ -28,7 +28,7 @@ parser.add_argument('--batch_size', type=int, default=512)
 parser.add_argument('--test_size', type=int, default=256)
 parser.add_argument('--num_workers', type=int, default=0)
 # Model Settings
-parser.add_argument('--model_name', type=str, default='ResNet18_NCM', choices=['ResNet18', 'ResNet18_NCM', 'ImageNet_ResNet18'])
+parser.add_argument('--model_name', type=str, default='ResNet18', choices=['ResNet18', 'ResNet18_NCM', 'ImageNet_ResNet18'])
 parser.add_argument('--epoch', type=int, default=10)
 parser.add_argument('--lr', '--learning_rate', type=float, default=0.1)
 parser.add_argument('--num_classes', type=int, default=10)
@@ -51,59 +51,34 @@ def train(epoch, model, train_loader, criterion, optimizer, classifier=None):
         y = y.type(torch.LongTensor)
         x, y = x.to(args.device).float(), y.to(args.device)
 
-        if classifier is None and args.classifier == 'FC':
-            logits = model(x) # FC
-        
-        elif args.classifier == 'NCM' or args.classifier == 'SLDA':
-            model.eval()
-            feature = model(x)
+        if args.classifier == 'NCM':
+            # model.eval()
+            feature = model.feature(x)
             classifier.train_(feature, y)
-        
-        elif args.classifier == 'DeepNCM':
-            # Initialize classifier (if novel classes are present)
-            model.prepare(y)
-            feature = model(x)
-            logits = model.predict(feature)
-
-            model.update_means(feature, y)
-            # Convert labels to match the order seen by the classifier
-            y_converted = model.linear.convert_labels(y).to(args.device)
-        
+            logits = classifier.evaluate_(feature)
+            print('\nNCM')
+            print(logits)
         else:
-            model.eval()
-            classifier.to(args.device) # Fine-tuning
-            classifier.train()
+            logits = model(x) # FC
 
-            feature = model(x) # Fine-tuning using FC
-            logits = classifier(feature)
+        loss = criterion(logits, y)
 
-        if args.classifier != 'NCM' and args.classifier != 'SLDA':
-            if args.classifier == 'DeepNCM':
-                print('\n', logits)
-                print(y_converted)
-                loss = criterion(logits, y_converted)
-            else:
-                print('\n', logits)
-                print(y)
-                loss = criterion(logits, y)
+        _, predicted = torch.max(logits, dim=1)
 
-            _, predicted = torch.max(logits, dim=1)
+        # Compute Gradient and do SGD step
+        optimizer.zero_grad()
+        loss.requires_grad_(True)
+        loss.backward()
+        optimizer.step()
 
-            # Compute Gradient and do SGD step
-            optimizer.zero_grad()
-            loss.requires_grad_(True)
-            loss.backward()
-            optimizer.step()
+        losses.update(loss)
 
-            losses.update(loss)
+        correct = predicted.eq(y).cpu().sum().item()
+        acc.update(correct, len(y))
 
-            if args.classifier == 'DeepNCM': correct = predicted.eq(y_converted).cpu().sum().item()
-            else: correct = predicted.eq(y).cpu().sum().item()
-            acc.update(correct, len(y))
-
-            sys.stdout.write('\r')
-            sys.stdout.write('%s | Epoch [%3d/%3d] Iter[%3d/%3d]\t loss: %.2f Accuracy: %.2f' % (args.dataset, epoch+1, args.epoch, batch_idx+1, num_iter, loss, acc.avg*100))
-            sys.stdout.flush()
+        sys.stdout.write('\r')
+        sys.stdout.write('%s | Epoch [%3d/%3d] Iter[%3d/%3d]\t loss: %.2f Accuracy: %.2f' % (args.dataset, epoch+1, args.epoch, batch_idx+1, num_iter, loss, acc.avg*100))
+        sys.stdout.flush()
 
     if args.classifier == 'NCM' or args.classifier == 'SLDA':
         return 0, 0
@@ -152,6 +127,8 @@ def test(task, model, test_loader, classifier=None):
 
 def main():
     ## GPU Setup
+    device = 'cuda:' + args.device
+    args.device = torch.device(device)
     torch.cuda.set_device(args.device)
 
     random.seed(args.seed)
@@ -220,6 +197,7 @@ def main():
     # the average test accuracy over all tasks
     print("\n\nAverage Test Accuracy : %.2f%%" % last_test_acc)
 
+    args.device = device
     metric_dict = {'metric': last_test_acc}
     logger.config(config=args, metric_dict=metric_dict)
 
