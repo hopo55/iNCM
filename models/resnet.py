@@ -1,3 +1,5 @@
+from models.NCM import NearestClassMean
+
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -77,7 +79,6 @@ class ResNet(nn.Module):
 
         return logits
 
-
 class ImageNet_ResNet(nn.Module):
     def __init__(self, num_classes=10, arch="resnet18"):
         super(ImageNet_ResNet, self).__init__()
@@ -97,6 +98,9 @@ class ImageNet_ResNet(nn.Module):
 
 
 # Reduced ResNet18 as in GEM MIR(note that nf=20).
+def ImageNet_ResNet18(out_dim=10):
+    return ImageNet_ResNet(out_dim)
+
 def Reduced_ResNet18(out_dim=10, nf=20, bias=True):
     return ResNet(BasicBlock, [2, 2, 2, 2], out_dim, nf, bias)
 
@@ -105,6 +109,3 @@ def ResNet18(out_dim=10, nf=64, bias=True):
 
 def ResNet34(out_dim=10, nf=64, bias=True):
     return ResNet(BasicBlock, [3, 4, 6, 3], out_dim, nf, bias)
-
-def ImageNet_ResNet18(out_dim=10):
-    return ImageNet_ResNet(out_dim)

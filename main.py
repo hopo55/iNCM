@@ -23,16 +23,16 @@ parser.add_argument('--device', type=str, default='0')
 parser.add_argument('--device_name', type=str, default='hspark')
 # Dataset Settings
 parser.add_argument('--root', type=str, default='./data/')
-parser.add_argument('--dataset', default='CIFAR10', choices=['MNIST', 'CIFAR10', 'CIFAR100'])
+parser.add_argument('--dataset', default='CIFAR10', choices=['MNIST', 'CIFAR10', 'CIFAR100', 'HAR'])
 parser.add_argument('--batch_size', type=int, default=512)
 parser.add_argument('--test_size', type=int, default=256)
 parser.add_argument('--num_workers', type=int, default=0)
 # Model Settings
-parser.add_argument('--model_name', type=str, default='ResNet18', choices=['ResNet18', 'ResNet18_NCM', 'ImageNet_ResNet18'])
+parser.add_argument('--model_name', type=str, default='ResNet18', choices=['ResNet18', 'ImageNet_ResNet18'])
 parser.add_argument('--epoch', type=int, default=10)
 parser.add_argument('--lr', '--learning_rate', type=float, default=0.1)
 parser.add_argument('--num_classes', type=int, default=10)
-parser.add_argument('--classifier', type=str, default='NCM', choices=['FC', 'NCM'])
+parser.add_argument('--classifier', type=str, default='FC', choices=['FC', 'NCM'])
 # CL Settings
 parser.add_argument('--class_increment', type=int, default=1)
 
@@ -46,22 +46,23 @@ def train(epoch, model, train_loader, criterion, optimizer, classifier=None):
     losses = AverageMeter()
 
     num_iter = math.ceil(len(train_loader.dataset) / args.batch_size)
+    l2_lambda = 2e-4
 
     for batch_idx, (x, y) in enumerate(train_loader):
         y = y.type(torch.LongTensor)
         x, y = x.to(args.device).float(), y.to(args.device)
 
         if args.classifier == 'NCM':
-            # model.eval()
-            feature = model.feature(x)
-            classifier.train_(feature, y)
-            logits = classifier.evaluate_(feature)
-            print('\nNCM')
-            print(logits)
+            features = model.features(x)
+            classifier.train_(features, y)
+            logits = classifier.evaluate_(features)
         else:
             logits = model(x) # FC
 
         loss = criterion(logits, y)
+
+        # l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
+        # loss = loss + (l2_norm * l2_lambda)
 
         _, predicted = torch.max(logits, dim=1)
 
@@ -80,10 +81,7 @@ def train(epoch, model, train_loader, criterion, optimizer, classifier=None):
         sys.stdout.write('%s | Epoch [%3d/%3d] Iter[%3d/%3d]\t loss: %.2f Accuracy: %.2f' % (args.dataset, epoch+1, args.epoch, batch_idx+1, num_iter, loss, acc.avg*100))
         sys.stdout.flush()
 
-    if args.classifier == 'NCM' or args.classifier == 'SLDA':
-        return 0, 0
-    else:
-        return loss.item(), acc.avg*100
+    return loss.item(), acc.avg*100
 
 def test(task, model, test_loader, classifier=None):
     acc = AverageMeter()
@@ -94,29 +92,15 @@ def test(task, model, test_loader, classifier=None):
         for x, y in test_loader:
             x, y = x.to(args.device).float(), y.to(args.device)
 
-            if classifier is None and args.classifier == 'FC':
-                output = model(x) # FC
-
-            elif args.classifier == 'NCM' or args.classifier == 'SLDA':
-                feature = model(x)
-                output = classifier.evaluate_(feature)
-
-            elif args.classifier == 'DeepNCM':
-                feature = model(x)
-                output = model.predict(feature)
-                # Convert labels to match the order seen by the classifier
-                y_converted = model.linear.convert_labels(y).to(args.device)
+            if args.classifier == 'NCM':
+                features = model.features(x)
+                logits = classifier.evaluate_(features)
             else:
-                classifier.to(args.device) # Fine-tuning
-                classifier.eval()
+                logits = model(x) # FC
 
-                feature = model(x) # Fine-tuning using FC
-                output = classifier(feature)
+            _, predicted = torch.max(logits, dim=1)
 
-            _, predicted = torch.max(output, dim=1)
-
-            if args.classifier == 'DeepNCM': correct = predicted.eq(y_converted).cpu().sum().item()
-            else: correct = predicted.eq(y).cpu().sum().item()
+            correct = predicted.eq(y).cpu().sum().item()
             acc.update(correct, len(y))
 
             sys.stdout.write('\r')
@@ -184,6 +168,9 @@ def main():
             if train_acc > best_acc:
                 best_acc = train_acc
                 logger.result('Train Epoch Loss/Labeled', loss, epoch)
+
+            if classifier_name == 'NCM' and epoch+1 != args.epoch:
+                classifier.update_mean(task)
 
         logger.result('Train Accuracy', best_acc, log_t)
 

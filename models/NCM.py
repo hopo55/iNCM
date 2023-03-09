@@ -1,20 +1,22 @@
-import os
+import numpy as np
 import torch
 from torch import nn
 
 class NearestClassMean(nn.Module):
-    def __init__(self, input_shape, num_classes, device='cuda'):
+    def __init__(self, input_shape, num_classes, alpha=0.9, device='cuda'):
         super(NearestClassMean, self).__init__()
 
         # NCM parameters
-        self.device = device
         self.input_shape = input_shape
         self.num_classes = num_classes
+        self.alpha = alpha
+        self.device = device
 
         # setup weights for NCM
-        self.muK = torch.zeros((num_classes, input_shape)).to(self.device)
-        self.cK = torch.zeros(num_classes).to(self.device)
-        self.num_updates = 0
+        self.muK = torch.zeros((self.num_classes, self.input_shape)).to(self.device)
+        self.prev_muK = torch.zeros((self.num_classes, self.input_shape)).to(self.device)
+
+        self.cK = torch.zeros(self.num_classes).to(self.device)
 
     @torch.no_grad()
     def fit(self, x, y):
@@ -30,7 +32,6 @@ class NearestClassMean(nn.Module):
         # update class means
         self.muK[y, :] += (x - self.muK[y, :]) / (self.cK[y] + 1).unsqueeze(1)
         self.cK[y] += 1
-        self.num_updates += 1
 
     @torch.no_grad()
     def find_dists(self, A, B):
@@ -50,7 +51,6 @@ class NearestClassMean(nn.Module):
         :return: the test predictions or probabilities
         """
         X = X.to(self.device)
-
         scores = self.find_dists(self.muK, X)
 
         # mask off predictions for unseen classes
@@ -76,16 +76,24 @@ class NearestClassMean(nn.Module):
         self.fit_batch(batch_x_feat, target)
 
     @torch.no_grad()
-    def evaluate_(self, test_x):
-        num_samples = len(test_x)
-        probabilities = torch.empty((num_samples, self.num_classes))
+    def evaluate_(self, batch_x):
+        num_samples = len(batch_x)
+        probabilities = torch.empty((num_samples, self.num_classes)).to(self.device)
         start = 0
 
-        for x in test_x:
-            x = x.to(self.device)
-            probas = self.predict(x, return_probas=True)
+        for x in batch_x:
+            x = torch.reshape(x, (1, 512))
+            # probas = self.predict(x, return_probas=True)
+            probas = self.predict(x)
             end = start + probas.shape[0]
             probabilities[start:end] = probas
             start = end
-
+        
         return probabilities
+    
+    @torch.no_grad()
+    def update_mean(self, task):
+        for idx in task:
+            self.muK[idx, :] = (self.alpha * self.prev_muK[idx, :]) + ((1-self.alpha)*self.muK[idx, :])
+            self.prev_muK[idx, :] = self.muK[idx, :]
+            self.cK[idx] = 0
