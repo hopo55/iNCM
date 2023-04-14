@@ -34,6 +34,9 @@ def get_transform(dataset_name='CIFAR100', train=True):
                 ]
             )
 
+    elif 'HAR' in dataset_name:
+        transform = transforms.Compose([transforms.ToTensor()])
+
     return transform
 
 class dataset(Dataset):
@@ -96,6 +99,14 @@ class dataset(Dataset):
                 img = Image.fromarray(img)
                 img = self.transform(img)            
                 return img, target
+            
+        elif 'HAR' in self.args.dataset:
+            if self.train:
+                data = torch.as_tensor(self.train_x[index])
+                return data, self.train_y[index]
+            else:
+                data = torch.as_tensor(self.test_x[index])
+                return data, self.test_y[index]
 
 
 class dataloader():

@@ -28,7 +28,7 @@ parser.add_argument('--batch_size', type=int, default=512)
 parser.add_argument('--test_size', type=int, default=256)
 parser.add_argument('--num_workers', type=int, default=0)
 # Model Settings
-parser.add_argument('--model_name', type=str, default='ResNet18', choices=['ResNet18', 'ImageNet_ResNet18'])
+parser.add_argument('--model_name', type=str, default='ResNet18', choices=['ResNet18', 'Reduced_ResNet18', 'ImageNet_ResNet18', 'HAR_ResNet18'])
 parser.add_argument('--epoch', type=int, default=10)
 parser.add_argument('--lr', '--learning_rate', type=float, default=0.1)
 parser.add_argument('--num_classes', type=int, default=10)
@@ -127,6 +127,9 @@ def main():
         data_generator.__dict__['Generator'](args)
         if args.dataset == 'CIFAR10': args.num_classes = 10
         else: args.num_classes = 100
+    elif 'HAR' in args.dataset:
+        data_generator.__dict__['Generator'](args)
+        args.num_classes = 6
 
     # Create Model
     model_name = args.model_name
